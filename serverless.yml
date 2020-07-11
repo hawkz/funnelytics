@@ -1,0 +1,78 @@
+service: funnelytics
+
+plugins:
+  - serverless-pseudo-parameters
+  - serverless-python-requirements
+  - serverless-wsgi
+
+provider:
+  name: aws
+  runtime: python3.8
+  memorySize: 128
+  timeout: 30
+  stage: ${opt:stage, "production"}
+  region: eu-west-2
+  logRetentionInDays: 30
+  apiGateway:
+    description: "Funnelytics"
+#   environment:
+#     EXAMPLE_API_KEY: ${ssm:/serverless/funnelytics-${opt:stage}/EXAMPLE_API_KEY~true}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource:
+        - { "Fn::GetAtt": ["UsersDynamoDBTable", "Arn" ] }
+  environment:
+    HITS_TABLE: ${self:custom.tableName}
+
+custom:
+  wsgi:
+    app: project.app
+    packRequirements: false
+  pythonRequirements:
+    fileName: requirements/base.txt
+    dockerizePip: non-linux
+    layer: true
+    slim: true
+    strip: false
+
+package:
+  exclude:
+    - "**"
+  include:
+    - project/**
+
+resources:
+  Description: "Funnelytics"
+  Resources:
+    UsersDynamoDBTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        AttributeDefinitions:
+          -
+            AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          -
+            AttributeName: userId
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:custom.tableName}
+
+functions:
+  app:
+    description: "Funnelytics"
+    handler: wsgi_handler.handler
+    events:
+      - http: ANY /
+      - http: 'ANY {proxy+}'
+    layers:
+      - {Ref: PythonRequirementsLambdaLayer}
